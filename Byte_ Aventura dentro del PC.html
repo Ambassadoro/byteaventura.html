@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Byte: Aventura dentro del PC</title>
+<style>
+:root{--bg:#f4f1ea;--card:#fff;--tx:#1d1d1f;--mu:#666;--ac:#b4442b;--ok:#2e7d4f;--bad:#c0392b;--bd:#ddd5c4;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16181d;--card:#22262e;--tx:#ececec;--mu:#9aa0aa;--ac:#e8785c;--ok:#5bc08a;--bad:#ff7a6b;--bd:#363b46}}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:660px;margin:0 auto;padding:12px;position:relative}
+#hud{display:flex;justify-content:space-between;font-weight:600;margin-bottom:8px}
+canvas{width:100%;display:block;border:2px solid var(--bd);border-radius:12px;background:#0d1b14;touch-action:none}
+#dlg{position:absolute;left:12px;right:12px;top:48px;background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,.35);display:none}
+#dlg h2{margin:0 0 6px;font-size:18px}
+button{font:inherit;color:inherit;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px;text-align:left;cursor:pointer;width:100%;margin:5px 0}
+button:hover{border-color:var(--ac)}.pri{background:var(--ac);color:#fff;border:0;text-align:center;font-weight:600}
+.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}.mu{color:var(--mu);font-size:14px}
+</style>
+</head>
+<body>
+<main>
+<div id="hud"></div>
+<canvas id="cv" width="640" height="400"></canvas>
+<p class="mu">Mueve a Byte con las flechas o WASD, o toca el mapa. Acércate a los habitantes para hablar con ellos. Evita los 🐛 bugs.</p>
+<div id="dlg"></div>
+</main>
+<script>
+const W=640,H=400,WW=1560,WH=900;
+// Zonas: nombre, x,y,w,h, color, npc[nombre,icono], preguntas [texto,[correcta,falsa,falsa],explicación]
+const Z=[
+{n:"Fuente de alimentación",x:20,y:330,w:230,h:240,c:"#8a6d1f",p:["Voltio","⚡"],i:"¡Eh, Byte! Soy Voltio. Aquí entra la corriente de la pared.",
+q:[["Entran 220 V de corriente alterna. ¿Qué necesita el PC?",["Corriente continua de +12, +5 y +3,3 V","Más corriente alterna","Solo +220 V"],"La fuente transforma, rectifica, filtra y estabiliza la corriente."],
+["¿Qué raíl alimenta a la CPU y a la gráfica?",["+12 V","+3,3 V","+5 V"],"+12 V es para lo que más consume; +5 V para USB y HDD; +3,3 V para RAM y M.2."]]},
+{n:"Placa base y BIOS",x:320,y:60,w:260,h:260,c:"#1f6f8a",p:["Doña BIOS","📜"],i:"Alto ahí. Soy la BIOS y nadie pasa sin que yo lo revise.",
+q:[["Mi pila alimenta a la memoria CMOS. ¿Para qué?",["Guardar configuración y hora sin corriente","Enfriar la CPU","Cargar la RAM"],"La CMOS necesita energía constante para recordar configuración y reloj."],
+["Mi firmware está en una EEPROM (Flash BIOS). ¿Cómo se borra?",["Eléctricamente","Con luz ultravioleta","No se puede borrar"],"EEPROM se borra eléctricamente; EPROM con UV; PROM solo se graba una vez."]]},
+{n:"Microprocesador",x:650,y:300,w:260,h:260,c:"#8a1f4a",p:["Núcleo","🧮"],i:"Soy un núcleo de la CPU. Aquí se ejecuta todo, rápido y sin descanso.",
+q:[["Si necesito un dato, ¿por dónde empiezo a buscarlo?",["Caché L1, luego L2, L3 y RAM","Disco duro","Directamente en RAM"],"Se va de lo más rápido y pequeño a lo más lento y grande."],
+["Mi multiplicador está bloqueado. ¿Puedo hacer overclocking?",["No: los CPU desbloqueados (como los K de Intel) sí","Sí, siempre","Solo con refrigeración líquida"],"El multiplicador debe estar desbloqueado, además de BIOS y chipset compatibles."]]},
+{n:"Memoria RAM",x:320,y:580,w:260,h:260,c:"#3f7f2f",p:["Ram-ón","🧠"],i:"Bienvenido a la ciudad de la RAM. Todo va rápido, pero nadie se queda.",
+q:[["Si se va la luz, ¿qué pasa con los datos de la RAM?",["Se pierden: es volátil","Se conservan","Pasan al disco solos"],"La RAM es volátil; ROM y almacenamiento no."],
+["Para activar Dual Channel necesito…",["Módulos idénticos en los slots indicados (1-3 y 2-4)","Un solo módulo","Módulos de distinta velocidad"],"Además hace falta un controlador de memoria adicional."]]},
+{n:"Almacenamiento",x:1000,y:600,w:260,h:260,c:"#5a4a8a",p:["Archivero","🗄️"],i:"Shhh. Este es el archivo. Aquí los datos duermen sin necesitar corriente.",
+q:[["En un SSD, ¿cuál es la unidad mínima de borrado?",["El bloque","La página","El sector de 512 bytes"],"Se escribe por páginas, pero solo se borra un bloque entero."],
+["Con RAID 1 y dos discos de 1 TB, ¿cuánto espacio útil hay?",["1 TB","2 TB","0,5 TB"],"RAID 1 es un espejo: la capacidad es la de un solo disco."]]},
+{n:"Chasis",x:1000,y:40,w:260,h:260,c:"#8a5a1f",p:["Capitán Ventus","🌀"],i:"Soy el capitán del chasis. Mi misión: que el aire fluya.",
+q:[["¿Hacia dónde tiende a subir el aire caliente?",["Hacia el techo","Hacia abajo","Hacia los lados"],"Por eso el flujo vertical mete aire por abajo y lo expulsa arriba."],
+["¿Qué placas admite una media torre?",["Mini-ITX, MicroATX y ATX","Solo EATX","Solo Mini-ITX"],"La torre grande admite también EATX."]]}
+];
+const BOSS={x:1320,y:330,w:200,h:240,p:["Virus","🦠"],
+q:[["¿Qué caracteriza a un SSD frente a un HDD?",["Memoria flash NAND sin partes móviles","Platos giratorios","Usa láser"],"El SSD guarda datos en celdas NAND, sin piezas móviles."],
+["Una fuente de 500 W en un PC que pide 600 W…",["Se apaga","Va mejor","Aumenta su potencia"],"Los vatios son el máximo que puede dar la fuente."],
+["¿Qué es el thermal throttling?",["La CPU baja su frecuencia para enfriarse","Un tipo de RAM","Un conector"],"Protege al procesador cuando se acerca a su límite térmico."]]};
+const cv=document.getElementById("cv"),g=cv.getContext("2d"),dlg=document.getElementById("dlg"),hud=document.getElementById("hud");
+let P={x:70,y:450},T=null,en=5,inv=0,keys=0,done={},pause=true,cd=0,K={},msg="";
+const B=Array.from({length:7},(_,i)=>({x:400+i*150,y:100+(i*137)%700,vx:(i%2?1:-1)*(.8+i*.1),vy:(i%3?.7:-.9)}));
+const sh=a=>a.map(t=>[Math.random(),t]).sort((u,v)=>u[0]-v[0]).map(u=>u[1]);
+function upd(){hud.innerHTML=`<span>${"❤️".repeat(en)}${"🖤".repeat(5-en)}</span><span>🔑 ${keys}/${Z.length}</span>`}
+function show(h){dlg.innerHTML=h;dlg.style.display="block";pause=true}
+function hide(){dlg.style.display="none";pause=false;cd=150}
+function intro(){show(`<h2>🟢 Byte despierta</h2><p>Acabas de nacer como un byte en el PC de un estudiante. Un virus 🦠 ha infectado el sistema y se esconde al otro lado del mapa. Visita cada zona, demuestra lo que sabes y consigue las 6 llaves para enfrentarte a él.</p><button class="pri" onclick="hide()">¡Empezar!</button>`)}
+function talk(z,boss){
+ const L=boss?BOSS:z,s=boss?{n:"Guarida del virus",i:"¡Jajaja! ¿Un byte pequeño quiere detenerme? Responde si puedes."}:z;
+ let k=0;
+ const ask=()=>{const q=L.q[k],o=sh([[q[1][0],1],[q[1][1],0],[q[1][2],0]]);
+  show(`<h2>${L.p[1]} ${L.p[0]}</h2><p class="mu">${k===0?s.i:"Pregunta "+(k+1)+" de "+L.q.length}</p><p><b>${q[0]}</b></p>${o.map((x,j)=>`<button onclick="A(${x[1]})">${x[0]}</button>`).join("")}`)};
+ window.A=ok=>{const q=L.q[k];
+  if(ok){k++;if(k>=L.q.length){
+    if(boss){return show(`<h2>🏆 ¡Virus derrotado!</h2><p>Byte salvó el sistema. Has repasado fuente, BIOS, CPU, RAM, almacenamiento y chasis.</p><button class="pri" onclick="location.reload()">Jugar otra vez</button>`)}
+    done[z.n]=1;keys++;upd();return show(`<h2 class="ok">¡Correcto! 🔑</h2><p>${q[2]}</p><p>${L.p[0]} te entrega una llave. Llevas ${keys} de ${Z.length}.</p><button class="pri" onclick="hide()">Seguir explorando</button>`)}
+   return show(`<h2 class="ok">¡Correcto! ✅</h2><p>${q[2]}</p><button class="pri" onclick="N()">Siguiente pregunta</button>`)}
+  hit();show(`<h2 class="bad">Fallaste ❌</h2><p>${q[2]}</p><button class="pri" onclick="${en<=0?"R()":"N()"}">${en<=0?"Continuar":"Intentarlo de nuevo"}</button>`)};
+ window.N=ask;ask()}
+function hit(){en--;upd()}
+window.R=()=>{en=5;P={x:70,y:450};upd();hide()};
+function near(o,r){return Math.hypot(P.x-(o.x+o.w/2),P.y-(o.y+o.h/2))<r}
+addEventListener("keydown",e=>{K[e.key.toLowerCase()]=1;T=null});addEventListener("keyup",e=>K[e.key.toLowerCase()]=0);
+cv.addEventListener("pointerdown",e=>{const r=cv.getBoundingClientRect(),s=W/r.width,cx=Math.max(0,Math.min(WW-W,P.x-W/2)),cy=Math.max(0,Math.min(WH-H,P.y-H/2));T={x:(e.clientX-r.left)*s+cx,y:(e.clientY-r.top)*s+cy}});
+function step(){
+ let dx=(K.d||K.arrowright?1:0)-(K.a||K.arrowleft?1:0),dy=(K.s||K.arrowdown?1:0)-(K.w||K.arrowup?1:0);
+ if(!dx&&!dy&&T){const d=Math.hypot(T.x-P.x,T.y-P.y);if(d>4){dx=(T.x-P.x)/d;dy=(T.y-P.y)/d}else T=null}
+ const m=Math.hypot(dx,dy)||1;P.x=Math.max(8,Math.min(WW-8,P.x+dx/m*2.6));P.y=Math.max(8,Math.min(WH-8,P.y+dy/m*2.6));
+ if(inv>0)inv--;if(cd>0)cd--;
+ B.forEach(b=>{b.x+=b.vx;b.y+=b.vy;if(b.x<10||b.x>WW-10)b.vx*=-1;if(b.y<10||b.y>WH-10)b.vy*=-1;
+  if(!inv&&Math.hypot(b.x-P.x,b.y-P.y)<16){inv=90;hit();if(en<=0){show(`<h2 class="bad">💥 Byte corrupto</h2><p>Los bugs te dejaron sin energía. Reapareces en la fuente de alimentación.</p><button class="pri" onclick="R()">Continuar</button>`)}}});
+ if(!cd){for(const z of Z){if(!done[z.n]&&near({x:z.x+z.w/2-20,y:z.y+z.h/2-20,w:40,h:40},46)){T=null;talk(z);return}}
+  if(near(BOSS,70)){T=null;if(keys<Z.length){show(`<h2>🦠 Guarida del virus</h2><p>Una barrera te frena: necesitas las ${Z.length} llaves. Te faltan ${Z.length-keys}.</p><button class="pri" onclick="hide()">Volver</button>`)}else talk(null,true)}}}
+function draw(){
+ const cx=Math.max(0,Math.min(WW-W,P.x-W/2)),cy=Math.max(0,Math.min(WH-H,P.y-H/2));
+ g.fillStyle="#0d1b14";g.fillRect(0,0,W,H);g.save();g.translate(-cx,-cy);
+ g.strokeStyle="#16382a";g.lineWidth=1;for(let x=0;x<=WW;x+=60){g.beginPath();g.moveTo(x,0);g.lineTo(x,WH);g.stroke()}for(let y=0;y<=WH;y+=60){g.beginPath();g.moveTo(0,y);g.lineTo(WW,y);g.stroke()}
+ g.textAlign="center";
+ [...Z,{...BOSS,n:"Guarida del virus",c:"#7a1010"}].forEach(z=>{g.fillStyle=z.c+"88";g.fillRect(z.x,z.y,z.w,z.h);g.strokeStyle=z.c;g.lineWidth=3;g.strokeRect(z.x,z.y,z.w,z.h);
+  g.fillStyle="#fff";g.font="bold 14px system-ui";g.fillText(z.n+(done[z.n]?" ✅":""),z.x+z.w/2,z.y+20);g.font="34px serif";g.fillText(z.p[1],z.x+z.w/2,z.y+z.h/2+10)});
+ B.forEach(b=>{g.font="22px serif";g.fillText("🐛",b.x,b.y+8)});
+ if(inv%10<5){g.fillStyle="#4dff9a";g.fillRect(P.x-9,P.y-9,18,18);g.fillStyle="#04210f";g.font="bold 11px monospace";g.fillText("01",P.x,P.y+4)}
+ g.restore()}
+function loop(){if(!pause)step();draw();requestAnimationFrame(loop)}
+upd();intro();loop();
+</script>
+</body>
+</html>
